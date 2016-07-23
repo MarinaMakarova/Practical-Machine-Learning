@@ -1,0 +1,187 @@
+---
+title: "PML_Final Project"
+author: "Marina Makanrova"
+date: "July 21, 2016"
+output: html_document
+---
+
+#Synopsis
+The data used in this paper was provided by HAR study 
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013
+http://groupware.les.inf.puc-rio.br/har
+
+The goal of the analysis is to to predict the manner in which people who participated in the research did the exercise.
+
+#System settings
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+The following packages were used during the analysis:
+```{r}
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(AppliedPredictiveModeling)
+library(forecast)
+```
+
+The analysis was performed under the following R version:
+```{r, echo=FALSE}
+sessionInfo()
+```
+
+#Original data
+
+The data was provided by the following website http://groupware.les.inf.puc-rio.br/har
+The data was loaded with the following code:
+```{r}
+URLtrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+URLtest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training <- read.csv(URLtrain, na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv(URLtest, na.strings=c("NA","#DIV/0!",""))
+```
+
+#Data cleaning
+
+The seed was set to 33577
+```{r}
+set.seed(33577)
+```
+
+First, we cleared the data. We eliminated the columns that contained N/A values and also excluses first 7 columns as they contain information not valuable for prediction (id, username, time and date).
+
+```{r}
+training_cl <- training[,-(1:7)]
+training_noNA <- training_cl
+#the following code will eliminate all columns with N/A values from training data
+for(i in 1:length(training_cl)) { 
+     if( sum( is.na( training_cl[, i] ) ) / nrow(training_cl) > 0) { 
+         for(j in 1:length(training_noNA)) {
+             if( length( grep(names(training_cl[i]), names(training_noNA)[j]) ) ==1)  { 
+                 training_noNA <- training_noNA[ , -j] 
+             }   
+         } 
+     }
+}
+dim(training)
+dim(training_noNA)
+```
+
+Also, we checked for covariats that have virtually no variablility.
+```{r}
+nzv <- nearZeroVar(training_noNA, saveMetrics=TRUE)
+nzv
+```
+
+Since all the near zero variance variables showed FALSE we didn't eliminate any covariates.
+
+#Creation of training and testing sets
+
+Then we splitted final training set into 3 training and 3 testing sets.
+```{r}
+set.seed(33577)
+#created 3 groups of entries
+No_set1 <- createDataPartition(training_noNA$classe, p = 1/3, list = FALSE)
+set1 <- training_noNA[No_set1,]
+training_left <- training_noNA[-No_set1,]
+No_set2 <- createDataPartition(training_left $classe, p = 1/2, list = FALSE)
+set2 <- training_left[No_set2,]
+set3 <- training_left[-No_set2,]
+#splited each group into training (60%) and testing (40%) sets
+inTrain <- createDataPartition(set1$classe, p=0.6, list=FALSE)
+train1 <- set1[inTrain,]
+test1 <- set1[-inTrain,]
+inTrain <- createDataPartition(set2$classe, p=0.6, list=FALSE)
+train2 <- set2[inTrain,]
+test2 <- set2[-inTrain,]
+inTrain <- createDataPartition(set3$classe, p=0.6, list=FALSE)
+train3 <- set3[inTrain,]
+test3 <- set3[-inTrain,]
+```
+
+#Testing prediction algorithms
+
+As mentioned in the 'Practical Machine Learning' course, prediction methods that are used most are classification trees and random forests. We decided to use these two methods in our analysis.
+
+##Classification tree
+
+First, we fitted the first training set with classification tree method and predicted classe  for first testing set. 
+```{r}
+model_CT <- rpart(classe ~ ., data = train1, method = "class")
+fancyRpartPlot(model_CT)
+predict_CT <- predict(model_CT, newdata = test1, , type = "class")
+confusionMatrix(predict_CT, test1$classe)
+```
+Accuracy of the prediction model is less than 70%. So we tried to fit second group of training/testing sets.
+```{r}
+model_CT2 <- rpart(classe ~ ., data = train2, method = "class")
+predict_CT2 <- predict(model_CT2, newdata = test2, , type = "class")
+confusionMatrix(predict_CT2, test2$classe)
+```
+The same accuracy for the second group (less than 70%).
+
+95% confidence interval for both groups is quite low, so we  decided to fit the data with 'random forest' method.
+
+##Random forest
+We fitted training set 1 with random forest method and predicted class variable values for testing set 1.
+```{r}
+model_RF <- randomForest(classe ~ ., data = train1)
+predict_RF <- predict(model_RF, newdata = test1, , type = "class")
+confusionMatrix(predict_RF, test1$classe)
+```
+This time accuracy is much higher. We wanted to check accuracy rate with 2 groups of training and testing sets left.
+Group 2: training set 2, testing set 2.
+```{r}
+model_RF2 <- randomForest(classe ~ ., data = train2)
+predict_RF2 <- predict(model_RF2, newdata = test2, , type = "class")
+confusionMatrix(predict_RF2, test2$classe)
+```
+Group 3: training set 3, testing set 3.
+```{r}
+model_RF3 <- randomForest(classe ~ ., data = train3)
+predict_RF3 <- predict(model_RF3, newdata = test3, , type = "class")
+confusionMatrix(predict_RF3, test3$classe)
+```
+
+The random forest method yealded better results, so we decided to use this method for final prediction model. 
+
+##Out of sample error
+
+To get the total error rate we averaged error rates of training-testing groups.
+Testing set 1: 1 - 0.9748 = 0.0252
+Testing set 2: 1 - 0.9744 = 0.0256
+Testing set 3: 1 - 0.9782 = 0.0218
+Average error rate: 0.0242
+
+##Initial Testing set prediction
+Firts set model
+```{r}
+predict_F1 <- predict(model_RF, newdata = testing, , type = "class")
+predict_F1
+```
+Second set model
+```{r}
+predict_F2 <- predict(model_RF2, newdata = testing, , type = "class")
+predict_F2
+```
+Third set model
+```{r}
+predict_F3 <- predict(model_RF3, newdata = testing, , type = "class")
+predict_F3
+```
+Also, we decided to use the whole training set to train the model and predict testing values.
+```{r}
+model_final <- randomForest(classe ~ ., data = training_noNA)
+predict_final <- predict(model_final, newdata = testing, , type = "class")
+predict_final
+```
+
+#Results
+
+Created 'random forest' model predicted the following values for the testing set:
+```{r, echo = FALSE}
+predict_final 
+```
